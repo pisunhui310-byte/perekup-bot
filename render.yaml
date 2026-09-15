@@ -1,0 +1,14 @@
+services:
+  - type: worker
+    name: perekup-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: AVITO_CLIENT_ID
+        sync: false
+      - key: AVITO_CLIENT_SECRET
+        sync: false

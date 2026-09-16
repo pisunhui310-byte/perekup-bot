@@ -179,9 +179,11 @@ export class Ledger {
   dispatch(d) { return this.mutate('Отправка покупателю',()=>{
     this.available(d.item);
     assert(Number.isSafeInteger(d.amount) && d.amount>=0,'Введи сумму к получению.');
+    if (d.fee > 0) this.db.prepare('INSERT INTO expenses(item_id,amount,note,day) VALUES(?,?,?,?)').run(d.item,d.fee,'Комиссия Avito / доставка',today());
     this.db.prepare("UPDATE items SET fulfillment='in_transit',expected_payout=? WHERE id=?").run(d.amount,d.item);
     return `🚚 ${this.item(d.item).name} едет к покупателю.\nК получению: ${rub(d.amount)}. В доход пока не записано.`;
   }); }
+  addDeliveryFee(d) { return this.mutate('Комиссия Avito',()=>{ const r=this.item(d.item); assert(r.fulfillment==='in_transit','Комиссию можно добавить только товару в доставке.'); assert(Number.isSafeInteger(d.fee)&&d.fee>=0,'Комиссия не может быть отрицательной.'); this.db.prepare('INSERT INTO expenses(item_id,amount,note,day) VALUES(?,?,?,?)').run(r.id,d.fee,'Комиссия Avito / доставка',today()); return `Комиссия Avito записана: ${rub(d.fee)}.`; }); }
   receive(d) { return this.mutate('Получение покупателем',()=>{
     const r=this.available(d.item);
     assert(r.fulfillment==='in_transit','Товар не отмечен в доставке.');

@@ -3,6 +3,7 @@ import { resolveCallback } from './telegram-ui.mjs';
 
 export const menu = [['💀 ПОТРАЧЕНО','🔄 Avito'], ['📦 Склад','🧹 Очистить'], ['📈 Статистика','⚠️ Залежались'], ['📊 Отчёт','🗓 За месяц'], ['ℹ️ Помощь']];
 export const moreMenu = menu;
+const expenseTypes=['Avito','Упаковка','Доставка','Ремонт','Реклама','Прочее'];
 const help = `Учёт компьютеров и комплектующих.\n\n🔄 Avito — синхронизация объявлений и цен.\n📦 Склад — карточки товаров, доставка, переименование и удаление.\n⚠️ Залежались — объявления, которые висят больше 7 дней.\n💀 ПОТРАЧЕНО — быстрый расход с датой сегодняшнего дня.\n📊 Отчёт — прибыль, расходы и категории.\n\n/stock — склад, /report — отчёт, /cancel — отмена текущего ввода.\nСуммы вводятся в рублях, даты — ГГГГ-ММ-ДД.`;
 
 const flows = {
@@ -10,13 +11,14 @@ const flows = {
   'Было в наличии': {op:'buy', kind:'opening', fields:[['name','Какой товар уже лежит у тебя? Одна запись — одна штука.'],['cost','За сколько покупал эту штуку?'],['acquired','Когда покупал? «Сегодня» или ГГГГ-ММ-ДД.']]},
   'Продал': {op:'sell', fields:[['item','Номер проданного товара из «Склада»? Например 3.'],['amount','За сколько продал? Сумма, которую покупатель заплатил, до расходов. Комиссию/доставку занеси отдельным расходом.'],['day','Дата продажи? «Сегодня» или ГГГГ-ММ-ДД.']]},
   'Расход': {op:'expense', fields:[['item','На какой товар расход? Его номер, либо 0 для общих расходов.'],['amount','Сколько потратил? Сумма в рублях.'],['note','На что потратил? Например: ремонт, доставка, продвижение.'],['day','Дата оплаты расхода? «Сегодня» или ГГГГ-ММ-ДД.']]},
-  '💀 ПОТРАЧЕНО': {op:'quick_expense', fields:[['amount','Сколько потратил? Введи сумму в рублях. Дата будет поставлена автоматически сегодня.']]},
-  'Потрачено': {op:'quick_expense', fields:[['amount','Сколько потратил? Введи сумму в рублях. Дата будет поставлена автоматически сегодня.']]},
+  '💀 ПОТРАЧЕНО': {op:'quick_expense', fields:[['category','Выбери тип траты:']]},
+  'Потрачено': {op:'quick_expense', fields:[['category','Выбери тип траты:']]},
   'Собрать ПК': {op:'build', fields:[]},
   'Разобрать ПК': {op:'dismantle', fields:[]}
 };
 function question(session) {
   const [field,text] = session.fields[session.step];
+  if(field==='category') return {text,keyboard:expenseTypes.map(x=>[x]).concat([['Отмена']])};
   return {text, keyboard:['acquired','day'].includes(field) ? [['Сегодня'],['Назад','Отмена']] : [['Назад','Отмена']]};
 }
 function stockButtons(ledger, action) {
@@ -43,13 +45,13 @@ function queueAvito(ledger,id) {
 function summary(ledger, s) {
   const d=s.data;
   const names = d.item ? `#${d.item} ${ledger.item(d.item).name}` : 'общие расходы';
-  if(s.op==='dispatch') return `🚚 Едет к покупателю\n${names}\nК получению: ${rub(d.amount)}\nДо получения покупателем эта сумма не входит в доход.`;
+  if(s.op==='dispatch') return `🚚 Едет к покупателю\n${names}\nК получению: ${rub(d.amount)}\nКомиссия Avito/доставки: ${rub(d.fee||0)}\nДо получения покупателем доход не начисляется.`;
   if(s.op==='receive') return `✅ Покупатель забрал\n${names}\nДоход: ${rub(ledger.item(d.item).expected_payout)}\nДата: ${d.day}`;
   if(s.op==='returnDelivery') return `Вернуть ${names} на склад без начисления дохода?`;
   if(s.op==='buy') return `${d.kind==='opening'?'Начальные запасы':'Покупка'}: ${d.name}\nСтоимость: ${rub(d.cost)}\nДата: ${d.acquired}`;
   if(s.op==='sell') return `Продажа: ${names}\nЦена: ${rub(d.amount)}\nСебестоимость: ${rub(ledger.cost(d.item))}\nРезультат сделки: ${rub(d.amount-ledger.cost(d.item))}\nДата: ${d.day}`;
   if(s.op==='expense') return `Расход: ${names}\n${d.note} · ${rub(d.amount)}\nДата: ${d.day}`;
-  if(s.op==='quick_expense') return `Быстрый расход\nСумма: ${rub(d.amount)}\nДата записи: ${d.day}\n\nОн попадёт в общие расходы этого месяца.`;
+  if(s.op==='quick_expense') return `Быстрый расход · ${d.category}\nСумма: ${rub(d.amount)}\nДата записи: ${d.day}\n\nОн попадёт в общие расходы этого месяца.`;
   if(s.op==='build') return `Сборка: ${d.name}\n${d.ids.map(n=>`#${n} ${ledger.item(n).name}`).join('\n')}\nСебестоимость: ${rub(d.ids.reduce((a,n)=>a+ledger.cost(n),0))}\nДата: ${d.day}`;
   if(s.op==='dismantle') return `Разбор: #${d.item} ${ledger.item(d.item).name}\n${d.parts.map((p,i)=>`${i+1}. ${p.name} · выставить ${rub(p.price)}`).join('\n')}\nОбщая выручка при продаже всего: ${rub(d.parts.reduce((a,p)=>a+p.price,0))}\nСебестоимость ПК: ${rub(ledger.cost(d.item))}\nПрогноз прибыли: ${rub(d.parts.reduce((a,p)=>a+p.price,0)-ledger.cost(d.item))}\nДата: ${d.day}`;
   return 'Отменить последнюю записанную операцию?';
@@ -93,7 +95,7 @@ export function reply(ledger, text) {
   if(!s && delivery) {
     const n=Number(delivery[2]); ledger.available(n);
     if(delivery[1]==='Продан без доставки') return {text:ledger.itemCard(n)+'\n\nПодтвердить продажу по последней цене объявления?',keyboard:[[`Подтвердить продажу #${n}`],['Отмена']]};
-    if(delivery[1]==='В доставке') { const ns={op:'dispatch',fields:[['amount','Сколько должен получить после доставки? Введи сумму в рублях.']],step:0,data:{item:n}}; ledger.set('session',ns); return question(ns); }
+  if(delivery[1]==='В доставке') { const ns={op:'dispatch',fields:[['amount','Сколько должен получить после доставки? Введи сумму в рублях.']],step:0,data:{item:n}}; ledger.set('session',ns); return question(ns); }
     return {text:ledger.itemCard(n)+'\n\nУбрать со склада без дохода?',keyboard:[[`Подтвердить снятие #${n}`],['Отмена']]};
   }
   let done=text.match(/^Подтвердить продажу #([1-9]\d*)$/); if(!s&&done) { const ns={op:'confirmListingSale',confirm:true,fields:[],step:0,data:{item:Number(done[1]),day:today()}}; ledger.set('session',ns); return {text:'Подтвердить завершённую продажу?',keyboard:[['Подтвердить'],['Отмена']]}; }
@@ -104,11 +106,13 @@ export function reply(ledger, text) {
   if(!s && product) {
     const n=Number(product[1]); const r=ledger.available(n);
     const deliveryButtons=r.fulfillment==='in_transit'
-      ? [[`Покупатель забрал #${n}`],[`Возврат #${n}`]]
+      ? [[`Покупатель забрал #${n}`],[`Возврат #${n}`],[`Комиссия #${n}`]]
       : [[`В доставке #${n}`]];
     return {text:ledger.itemCard(n)+'\n\nЧто сделать?',url:r.avito_url,
       keyboard:[...deliveryButtons,[`Переименовать #${n}`],[`Удалить #${n}`],['Склад']]};
   }
+  let feeMatch=text.match(/^Комиссия #([1-9]\d*)$/);
+  if(!s && feeMatch) { const n=Number(feeMatch[1]); ledger.available(n); const ns={op:'fee',fields:[['fee','Сколько удержала комиссия Avito/доставки? Введи сумму, либо 0.']],step:0,data:{item:n}}; ledger.set('session',ns); return question(ns); }
   let action=text.match(/^(Продать|Переименовать|Удалить) #([1-9]\d*)$/);
   if(!s && action) { const n=Number(action[2]); ledger.available(n); if(action[1]==='Продать') return reply(ledger,`Продать #${n} · ${ledger.item(n).name}`); if(action[1]==='Переименовать') { const ns={op:'rename',fields:[['name','Новое название товара?']],step:0,data:{item:n}}; ledger.set('session',ns); return question(ns); } const ns={op:'remove',confirm:true,fields:[],step:0,data:{item:n}}; ledger.set('session',ns); return {text:`Удалить #${n} ${ledger.item(n).name}?`,keyboard:[['Подтвердить'],['Отмена']]}; }
   if(text==='Статистика' || text==='📈 Статистика') return {text:ledger.avitoDashboard(),keyboard:menu};
@@ -138,7 +142,7 @@ export function reply(ledger, text) {
     if(s.confirm) {
       if(text==='Назад') { s.confirm=false; const [field]=s.fields[--s.step]; delete s.data[field]; if(field==='part_price'&&s.data.parts?.length) s.data.parts.pop(); ledger.set('session',s); return question(s); }
       if(text!=='Подтвердить') return {text:'Нажми «Подтвердить» или «Отмена».',keyboard:[['Подтвердить','Отмена']]};
-      const result=s.op==='undo' ? ledger.undo() : s.op==='quick_expense' ? ledger.expense({item:0,amount:s.data.amount,note:'Быстрый расход',day:s.data.day}) : s.op==='remove' ? ledger.removeItem(s.data.item) : s.op==='rename' ? ledger.renameItem(s.data.item,s.data.name) : s.op==='clear_stock' ? ledger.clearStock() : s.op==='manual_buy' ? ledger.buy({...s.data,kind:'opening',cost:0,acquired:today()}) : ledger[s.op](s.data);
+      const result=s.op==='undo' ? ledger.undo() : s.op==='quick_expense' ? ledger.expense({item:0,amount:s.data.amount,note:s.data.category||'Прочее',day:s.data.day}) : s.op==='fee' ? ledger.addDeliveryFee(s.data) : s.op==='remove' ? ledger.removeItem(s.data.item) : s.op==='rename' ? ledger.renameItem(s.data.item,s.data.name) : s.op==='clear_stock' ? ledger.clearStock() : s.op==='manual_buy' ? ledger.buy({...s.data,kind:'opening',cost:0,acquired:today()}) : ledger[s.op](s.data);
       ledger.set('session',null);
       if(s.op==='buy' && s.data.avito_id) {
         const q=ledger.get('avito_queue',[]); const next=q.shift(); ledger.set('avito_queue',q);
@@ -163,7 +167,8 @@ export function reply(ledger, text) {
       s.fields=[]; s.step=0; s.confirm=true; ledger.set('session',s);
       return {text:`${a.title}\nЦена продажи на Avito: ${rub(Math.round(a.price*100))}\n${a.url}\n\nДобавить в склад с себестоимостью 0 ₽?`,keyboard:[['Подтвердить'],['Отмена']]};
     }
-    if(['cost','amount','listing_price'].includes(field)) value=money(text);
+    if(['cost','amount','listing_price','fee'].includes(field)) value=money(text);
+    else if(field==='category') { assert(expenseTypes.includes(text),'Выбери тип траты кнопкой.'); value=text; s.fields.push(['amount','Сколько потратил? Введи сумму в рублях. Дата будет поставлена автоматически сегодня.']); }
     else if(['day','acquired'].includes(field)) value=date(text);
     else if(field==='item') {
       value=s.op==='expense' && text==='0' ? 0 : id(text);
@@ -181,7 +186,8 @@ export function reply(ledger, text) {
       value=money(text); s.data.parts.push({name:s.data.part_name,price:value}); delete s.data.part_name; delete s.data.part_price;
       if(s.data.parts.length < s.data.count) { s.fields.splice(s.step+1,0,['part_name',`Название комплектующей №${s.data.parts.length+1}?`],['part_price',`Цена выставления №${s.data.parts.length+1} в рублях?`]); }
     } else assert(text.length>=1 && text.length<=160,'Введи от 1 до 160 символов.');
-    if(s.op==='quick_expense') { assert(value>0,'Сумма должна быть больше нуля.'); s.data.day=today(); }
+    if(s.op==='quick_expense' && field==='amount') { assert(value>0,'Сумма должна быть больше нуля.'); s.data.day=today(); }
+    if(s.op==='dispatch' && field==='fee') assert(value>=0,'Комиссия не может быть отрицательной.');
     if(field==='amount' && s.op==='expense') assert(value>0,'Расход должен быть больше нуля.');
     if(field==='day' && s.op==='sell') assert(value>=ledger.item(s.data.item).acquired,'Продажа не может быть раньше покупки/сборки.');
     if(field==='day' && s.op==='build') assert(s.data.ids.every(n=>ledger.item(n).acquired<=value),'Сборка не может быть раньше покупки деталей.');
@@ -193,6 +199,7 @@ export function reply(ledger, text) {
     s.step++;
     if(s.step===s.fields.length) { s.confirm=true; ledger.set('session',s); return {text:summary(ledger,s)+'\n\nЗаписать?',keyboard:[['Подтвердить','Отмена']]}; }
     ledger.set('session',s);
+    if(field==='category') return {text:'Сколько потратил? Введи сумму в рублях. Дата будет поставлена автоматически сегодня.',keyboard:[['Назад'],['Отмена']]};
     return question(s);
   }
   if(text==='Отменить действие' || text==='Отменить запись') {

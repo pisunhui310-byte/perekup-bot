@@ -259,14 +259,19 @@ export class Ledger {
     const purchases = items.filter(r => r.kind==='purchase' && !r.source_id && within(r.acquired)).reduce((s,r) => s+r.cost,0);
     const cashExpenses = expenses.filter(r => within(r.day)).reduce((s,r) => s+r.amount,0);
     const totals=this.stockTotals();
-    const breakdown = this.expenseBreakdown(month).slice(0,8).map(([name,amount])=>`• ${name}: ${rub(amount)}`).join('\\n');
+    const breakdown = this.expenseBreakdown(month).slice(0,8).map(([name,amount])=>`• ${name}: ${rub(amount)}`).join('\n');
+    const quick = expenses.filter(r=>!r.item_id && within(r.day));
+    const quickTotal = quick.reduce((s,r)=>s+r.amount,0);
+    const quickBreakdown = [...new Map(quick.map(r=>[r.note,(quick.filter(x=>x.note===r.note).reduce((s,x)=>s+x.amount,0))])).entries()]
+      .sort((a,b)=>b[1]-a[1]).map(([name,amount])=>`• ${name}: ${rub(amount)}`).join('\n');
     const paid=purchases+cashExpenses, realized=revenue-cogs-general, cashResult=revenue-paid;
-    return `📊 ОТЧЁТ\\nПериод: ${month || 'за всё время'}\\n\\n`+
-      `✅ ЗАВЕРШЁННЫЕ ПРОДАЖИ\\nПродано: ${sales.length} шт.\\nВыручка: ${rub(revenue)}\\nРеализованный профит: ${rub(realized)}\\n\\n`+
-      `💸 ДЕНЬГИ\\nОплачено расходов и закупок: ${rub(paid)}\\nДвижение денег: ${rub(cashResult)}\\n\\n`+
-      `📦 ОЖИДАЕТСЯ\\nНа продаже: ${rub(totals.listed)}\\nВ доставке: ${rub(totals.transit)}\\nВсего потенциальной выручки: ${rub(totals.listed+totals.transit)}\\n`+
-      (breakdown ? `\\nРасходы по назначениям:\\n${breakdown}\\n` : '')+
-      `\\nПрофит появляется только после завершения продажи. Товары на складе и в доставке — это ещё не доход.`+
+    return `📊 ОТЧЁТ\nПериод: ${month || 'за всё время'}\n\n`+
+      `✅ ЗАВЕРШЁННЫЕ ПРОДАЖИ\nПродано: ${sales.length} шт.\nВыручка: ${rub(revenue)}\nРеализованный профит: ${rub(realized)}\n\n`+
+      `💸 ДЕНЬГИ\nОплачено расходов и закупок: ${rub(paid)}\nДвижение денег: ${rub(cashResult)}\n\n`+
+      `💀 ПОТРАЧЕНО\nВсего: ${rub(quickTotal)}\n${quickBreakdown || 'Пока нет быстрых трат.'}\n\n`+
+      `📦 ОЖИДАЕТСЯ\nНа продаже: ${rub(totals.listed)}\nВ доставке: ${rub(totals.transit)}\nПотенциальная выручка: ${rub(totals.listed+totals.transit)}\n`+
+      (breakdown ? `\nВСЕ РАСХОДЫ ПО НАЗНАЧЕНИЯМ\n${breakdown}\n` : '')+
+      `\nПрофит появляется только после завершения продажи. Товары на складе и в доставке — это ещё не доход.`+
       (items.some(r=>r.cost>0)?`\n\nСтарый учёт с закупками:\nРезультат по внесённым данным: ${rub(revenue-cogs-general)}\nДвижение денег за период: ${rub(revenue-purchases-cashExpenses)}\nНе дублируй старые закупки в ПОТРАЧЕНО.`:'');
   }
   export() {

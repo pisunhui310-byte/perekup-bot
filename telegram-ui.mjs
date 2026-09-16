@@ -61,6 +61,7 @@ export async function deliver(ledger,row,api) {
     await api('sendMessage',{chat_id:row.chat,text:'Кнопки теперь под сообщениями.',reply_markup:{remove_keyboard:true}});
     ledger.set(`inline_migrated:${row.chat}`,true);
   }
+  const keepSeparate=/(?:Новое объявление|Объявление ещё не добавлено|Следующее объявление Avito)/i.test(p.text||'') || p.document;
   const parts=[]; let remaining=p.text;
   while(remaining.length>3500) {
     let n=remaining.lastIndexOf('\n',3500); if(n<=0) n=3500;
@@ -69,8 +70,14 @@ export async function deliver(ledger,row,api) {
   parts.push(remaining);
   for(let i=0;i<parts.length;i++) {
     const last=i===parts.length-1;
-    const result=await api('sendMessage',{chat_id:row.chat,text:parts[i],...(last?{reply_markup:inlineMarkup(ledger,row,p)}:{})});
-    if(last) bindMessage(ledger,row.id,result.message_id);
+    const markup=last?inlineMarkup(ledger,row,p):undefined;
+    const previous=last && !keepSeparate ? ledger.get(`last_message:${row.chat}`) : null;
+    let result;
+    if(previous) {
+      try { result=await api('editMessageText',{chat_id:row.chat,message_id:previous,text:parts[i],reply_markup:markup}); }
+      catch { result=await api('sendMessage',{chat_id:row.chat,text:parts[i],...(markup?{reply_markup:markup}:{})}); }
+    } else result=await api('sendMessage',{chat_id:row.chat,text:parts[i],...(markup?{reply_markup:markup}:{})});
+    if(last) { const messageId=result.message_id || previous; bindMessage(ledger,row.id,messageId); if(!keepSeparate) ledger.set(`last_message:${row.chat}`,messageId); }
   }
   if(p.document) {
     const data=new FormData(); data.set('chat_id',String(row.chat));

@@ -3,6 +3,7 @@ import { mkdirSync, existsSync, openSync, closeSync, unlinkSync, writeFileSync, 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backup } from 'node:sqlite';
+import { createServer } from 'node:http';
 import { Ledger } from './ledger.mjs';
 import { processUpdate } from './conversation.mjs';
 import { ApiError, makeApi } from './network.mjs';
@@ -32,6 +33,8 @@ catch { console.error('Не удалось получить блокировку
 process.on('exit',()=>{try{unlinkSync(lock);}catch{}});
 
 const ledger=new Ledger(join(dir,'accounting.sqlite'));
+const healthServer=createServer((req,res)=>{ if(req.url==='/health'){res.writeHead(200,{'content-type':'text/plain'});res.end('ok');} else {res.writeHead(404);res.end();} });
+healthServer.listen(Number(process.env.PORT||10000),'0.0.0.0');
 // Remove obsolete delivery-access warnings queued by older bot versions.
 ledger.db.prepare("DELETE FROM outbox WHERE payload LIKE '%Доставки: Avito API вернул 403%'").run();
 const avito=(process.env.AVITO_CLIENT_ID&&process.env.AVITO_CLIENT_SECRET)?new AvitoClient(process.env.AVITO_CLIENT_ID,process.env.AVITO_CLIENT_SECRET):null;

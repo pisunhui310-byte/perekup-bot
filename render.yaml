@@ -1,10 +1,11 @@
 services:
-  - type: worker
+  - type: web
     name: perekup-bot
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
     autoDeploy: true
+    healthCheckPath: /health
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false

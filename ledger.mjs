@@ -258,9 +258,13 @@ export class Ledger {
     const cashExpenses = expenses.filter(r => within(r.day)).reduce((s,r) => s+r.amount,0);
     const totals=this.stockTotals();
     const breakdown = this.expenseBreakdown(month).slice(0,8).map(([name,amount])=>`• ${name}: ${rub(amount)}`).join('\\n');
-    return `📊 ОТЧЁТ · ${month || 'всё внесённое время'}\\nПродано: ${sales.length}\\nВыручка: ${rub(revenue)}\\nПотрачено за период: ${rub(purchases+cashExpenses)}\\nПрофит за период: ${rub(revenue-purchases-cashExpenses)}\\n`+
-      (breakdown ? `\\nРасходы по категориям:\\n${breakdown}\\n` : '')+
-      `\\nНа продаже сейчас: ${rub(totals.listed)}\\nВ доставке, ожидается: ${rub(totals.transit)}\\nСейчас в товаре: ${rub(totals.listed+totals.transit)}\\n\\nПрофит = завершённые продажи минус внесённые траты периода. Суммы в доставке и цены объявлений ещё не доход. Каждую трату вноси один раз через ПОТРАЧЕНО.`+
+    const paid=purchases+cashExpenses, realized=revenue-cogs-general, cashResult=revenue-paid;
+    return `📊 ОТЧЁТ\\nПериод: ${month || 'за всё время'}\\n\\n`+
+      `✅ ЗАВЕРШЁННЫЕ ПРОДАЖИ\\nПродано: ${sales.length} шт.\\nВыручка: ${rub(revenue)}\\nРеализованный профит: ${rub(realized)}\\n\\n`+
+      `💸 ДЕНЬГИ\\nОплачено расходов и закупок: ${rub(paid)}\\nДвижение денег: ${rub(cashResult)}\\n\\n`+
+      `📦 ОЖИДАЕТСЯ\\nНа продаже: ${rub(totals.listed)}\\nВ доставке: ${rub(totals.transit)}\\nВсего потенциальной выручки: ${rub(totals.listed+totals.transit)}\\n`+
+      (breakdown ? `\\nРасходы по назначениям:\\n${breakdown}\\n` : '')+
+      `\\nПрофит появляется только после завершения продажи. Товары на складе и в доставке — это ещё не доход.`+
       (items.some(r=>r.cost>0)?`\n\nСтарый учёт с закупками:\nРезультат по внесённым данным: ${rub(revenue-cogs-general)}\nДвижение денег за период: ${rub(revenue-purchases-cashExpenses)}\nНе дублируй старые закупки в ПОТРАЧЕНО.`:'');
   }
   export() {

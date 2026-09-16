@@ -37,7 +37,9 @@ const ledger=new Ledger(join(dir,'accounting.sqlite'));
 const health=new PollHealth();
 let webhookHandler=null;
 const healthServer=createServer(async (req,res)=>{
-  if(req.url==='/health'){const status=health.status();res.writeHead(status.code,{'content-type':'text/plain'});res.end(status.state);return;}
+  // Render's health check must not depend on Telegram traffic. A quiet chat is
+  // normal; returning 503 after idle time would make Render restart the bot.
+  if(req.url==='/health'){const status=health.status(); const code=process.env.RENDER_EXTERNAL_URL ? (health.stopped?503:200) : status.code; res.writeHead(code,{'content-type':'text/plain'});res.end(status.state);return;}
   if(req.url==='/telegram' && req.method==='POST' && webhookHandler) {
     let body=''; for await (const chunk of req) body+=chunk;
     try { await webhookHandler(JSON.parse(body)); res.writeHead(200); res.end('ok'); }

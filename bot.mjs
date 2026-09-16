@@ -35,7 +35,17 @@ process.on('exit',()=>{try{unlinkSync(lock);}catch{}});
 
 const ledger=new Ledger(join(dir,'accounting.sqlite'));
 const health=new PollHealth();
-const healthServer=createServer((req,res)=>{ if(req.url==='/health'){const status=health.status();res.writeHead(status.code,{'content-type':'text/plain'});res.end(status.state);} else {res.writeHead(404);res.end();} });
+let webhookHandler=null;
+const healthServer=createServer(async (req,res)=>{
+  if(req.url==='/health'){const status=health.status();res.writeHead(status.code,{'content-type':'text/plain'});res.end(status.state);return;}
+  if(req.url==='/telegram' && req.method==='POST' && webhookHandler) {
+    let body=''; for await (const chunk of req) body+=chunk;
+    try { await webhookHandler(JSON.parse(body)); res.writeHead(200); res.end('ok'); }
+    catch { res.writeHead(500); res.end('error'); }
+    return;
+  }
+  res.writeHead(404);res.end();
+});
 healthServer.listen(Number(process.env.PORT||10000),'0.0.0.0');
 let closed=false;
 function shutdown() {
@@ -70,6 +80,13 @@ try {
     console.log('Остановить: Ctrl+C.');
     let delay=1000;
     let announced=false;
+    const renderUrl=(process.env.RENDER_EXTERNAL_URL||'').replace(/\/$/,'');
+    if(renderUrl) {
+      webhookHandler=async update=>{ const answer=processUpdate(ledger,update,code); if(update.callback_query) { try { await api('answerCallbackQuery',{callback_query_id:update.callback_query.id,text:answer?.callbackText||''}); } catch {} } await flush(); health.received(); };
+      await api('setWebhook',{url:`${renderUrl}/telegram`,drop_pending_updates:false});
+      console.log(`Webhook Telegram подключён: ${renderUrl}/telegram`);
+      for (;;) { await runAvitoSync(ledger,avito); await flush(); await sleep(30000); }
+    }
     while(true) {
       try {
         await runAvitoSync(ledger,avito);

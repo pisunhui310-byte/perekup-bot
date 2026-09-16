@@ -69,7 +69,8 @@ const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 try {
   const me=await api('getMe',{});
   const hook=await api('getWebhookInfo',{});
-  if(hook.url) {
+  const renderMode=Boolean(process.env.RENDER_EXTERNAL_URL);
+  if(hook.url && !renderMode) {
     console.error('У этого бота уже есть webhook другой программы. Создай отдельного бота в BotFather.');
     process.exitCode=1;
   } else {

@@ -10,6 +10,7 @@ import { ApiError, makeApi } from './network.mjs';
 import { AvitoClient } from './avito.mjs';
 import { deliver } from './telegram-ui.mjs';
 import { runAvitoSync } from './avito-sync.mjs';
+import { PollHealth, pollUpdates } from './polling.mjs';
 
 const root=dirname(fileURLToPath(import.meta.url));
 const dir=join(root,'data');
@@ -33,8 +34,15 @@ catch { console.error('Не удалось получить блокировку
 process.on('exit',()=>{try{unlinkSync(lock);}catch{}});
 
 const ledger=new Ledger(join(dir,'accounting.sqlite'));
-const healthServer=createServer((req,res)=>{ if(req.url==='/health'){res.writeHead(200,{'content-type':'text/plain'});res.end('ok');} else {res.writeHead(404);res.end();} });
+const health=new PollHealth();
+const healthServer=createServer((req,res)=>{ if(req.url==='/health'){const status=health.status();res.writeHead(status.code,{'content-type':'text/plain'});res.end(status.state);} else {res.writeHead(404);res.end();} });
 healthServer.listen(Number(process.env.PORT||10000),'0.0.0.0');
+let closed=false;
+function shutdown() {
+  if(closed) return;
+  closed=true; health.stop(); healthServer.close(); healthServer.closeAllConnections(); ledger.close();
+}
+for(const signal of ['SIGTERM','SIGINT']) process.on(signal,()=>{shutdown();process.exit(0);});
 // Remove obsolete delivery-access warnings queued by older bot versions.
 ledger.db.prepare("DELETE FROM outbox WHERE payload LIKE '%Доставки: Avito API вернул 403%'").run();
 const avito=(process.env.AVITO_CLIENT_ID&&process.env.AVITO_CLIENT_SECRET)?new AvitoClient(process.env.AVITO_CLIENT_ID,process.env.AVITO_CLIENT_SECRET):null;
@@ -55,16 +63,19 @@ try {
     console.error('У этого бота уже есть webhook другой программы. Создай отдельного бота в BotFather.');
     process.exitCode=1;
   } else {
-    console.log(`Бот @${me.username} готов. Пока это окно открыто и компьютер включён, бот работает.`);
+    health.authenticated();
+    console.log(`Telegram принял токен @${me.username}. Подключаю получение сообщений…`);
     if(!ledger.get('owner')) console.log(`Для личной привязки открой ссылку и нажми Start:\nhttps://t.me/${me.username}?start=${code}\nНикому не пересылай эту ссылку.`);
     else console.log(`Открой https://t.me/${me.username} — доступ разрешён только привязанному владельцу.`);
     console.log('Остановить: Ctrl+C.');
     let delay=1000;
+    let announced=false;
     while(true) {
       try {
         await runAvitoSync(ledger,avito);
         await flush();
-        const updates=await api('getUpdates',{offset:ledger.get('offset',0),timeout:25,allowed_updates:['message','callback_query']});
+        const updates=await pollUpdates(api,{offset:ledger.get('offset',0),timeout:25,allowed_updates:['message','callback_query']},health);
+        if(!announced) { console.log(`Бот @${me.username} принимает сообщения.`); announced=true; }
         for(const update of updates) {
           const answer=processUpdate(ledger,update,code);
           if(update.callback_query) {
@@ -77,7 +88,8 @@ try {
         delay=1000;
       } catch(e) {
         if(!(e instanceof ApiError)) { console.error('Ошибка обработки данных. Остановлено; база сохранена. Проверь код и резервную копию.'); process.exitCode=1; break; }
-        if([401,403,409].includes(e.code)) { console.error(`${e.message}. Проверь токен, разблокируй бота и убедись, что работает только один экземпляр.`); process.exitCode=1; break; }
+        if(e.code===409) { console.error('Telegram 409 не исчез за 120 секунд. Останови вторую копию этого бота на компьютере или хостинге. Процесс завершается.'); process.exitCode=1; break; }
+        if([401,403].includes(e.code)) { console.error(`${e.message}. Проверь токен и доступ бота.`); process.exitCode=1; break; }
         console.error(`${e.message}. Повтор подключения…`);
         await sleep(Math.max(delay,Math.min(e.delay*1000,60000))); delay=Math.min(delay*2,30000);
       }
@@ -86,4 +98,4 @@ try {
 } catch(e) {
   console.error(e instanceof ApiError ? `${e.message}.${e.code===401 ? ' Токен не принят: запусти replace-token.cmd.' : ' После исправления повтори запуск start.cmd.'}` : 'Не удалось запустить бота.');
   process.exitCode=1;
-} finally { ledger.close(); }
+} finally { shutdown(); }

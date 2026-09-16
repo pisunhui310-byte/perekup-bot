@@ -42,8 +42,12 @@ const healthServer=createServer(async (req,res)=>{
   if(req.url==='/health'){const status=health.status(); const code=process.env.RENDER_EXTERNAL_URL ? (health.stopped?503:200) : status.code; res.writeHead(code,{'content-type':'text/plain'});res.end(status.state);return;}
   if(req.url==='/telegram' && req.method==='POST' && webhookHandler) {
     let body=''; for await (const chunk of req) body+=chunk;
-    try { await webhookHandler(JSON.parse(body)); res.writeHead(200); res.end('ok'); }
-    catch { res.writeHead(500); res.end('error'); }
+    let update;
+    try { update=JSON.parse(body); } catch { res.writeHead(400); res.end('bad json'); return; }
+    // Acknowledge Telegram immediately. Slow Render wake-ups or Telegram API
+    // calls must never make Telegram retry the same update.
+    res.writeHead(200); res.end('ok');
+    Promise.resolve().then(()=>webhookHandler(update)).catch(e=>console.error('Webhook update failed:',e?.message||'unknown error'));
     return;
   }
   res.writeHead(404);res.end();

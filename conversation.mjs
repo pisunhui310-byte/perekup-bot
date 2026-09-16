@@ -23,7 +23,7 @@ function stockButtons(ledger, action) {
   const rows=ledger.all().filter(r=>!r.parent&&!r.sold_on&&!r.dismantled).map(r=>[`${action} #${r.id} · ${r.name}`]);
   return rows.length ? [...rows,['Отмена']] : [['Отмена']];
 }
-function stockMenu(ledger) { return [['Очистить склад'], ...ledger.stockItems().map(r=>[`Товар #${r.id} · ${r.name}`]), ['Назад']]; }
+function stockMenu(ledger) { return [['Добавить по ссылке Avito'],['Очистить склад'], ...ledger.stockItems().map(r=>[`Товар #${r.id} · ${r.name}`]), ['МЕНЮ']]; }
 function nextAvito(ledger) {
   const owner=ledger.get('owner');
   const row=ledger.db.prepare(`SELECT a.* FROM avito_items a
@@ -80,6 +80,10 @@ export function reply(ledger, text) {
   text=pretty[text] || text;
   if(text==='Назад') return {text:'Главное меню:',keyboard:menu};
   if(text==='Склад') return {text:ledger.stock()+'\n\nВыбери товар для действий:',keyboard:stockMenu(ledger)};
+  if(text==='Добавить по ссылке Avito') {
+    const ns={op:'link_buy',fields:[['url','Пришли полную ссылку на объявление Avito (https://www.avito.ru/...)']],step:0,data:{}};
+    ledger.set('session',ns); return question(ns);
+  }
   if(text==='Очистить склад') { const count=ledger.all().filter(r=>!r.parent&&!r.sold_on&&!r.dismantled).length; assert(count>0,'Склад уже пуст.'); const ns={op:'clear_stock',confirm:true,fields:[],step:0,data:{count}}; ledger.set('session',ns); return {text:`Удалить весь текущий склад? Позиций: ${count}.\nПроданные сделки и отчёты останутся.`,keyboard:[['Подтвердить'],['Отмена']]}; }
   let delivery=text.match(/^(Продан без доставки|В доставке|Снял без продажи) #([1-9]\d*)$/);
   if(!s && delivery) {
@@ -145,6 +149,16 @@ export function reply(ledger, text) {
     }
     const [field]=s.fields[s.step];
     let value=text;
+    if(field==='url' && s.op==='link_buy') {
+      assert(/^https:\/\/(www\.)?avito\.ru\//i.test(text),'Нужна ссылка именно на объявление Avito: https://www.avito.ru/...');
+      const canonical=u=>u.trim().replace(/[?#].*$/,'').replace(/\/$/,'');
+      const a=ledger.db.prepare('SELECT * FROM avito_items WHERE url=? LIMIT 1').get(text) || ledger.db.prepare('SELECT * FROM avito_items WHERE rtrim(url,\'/\')=? LIMIT 1').get(canonical(text));
+      assert(a,'Объявление не найдено в загруженных данных Avito. Сначала нажми «🔄 Avito», затем повтори ссылку.');
+      assert(!ledger.hasAvitoItem(a.id),'Это объявление уже добавлено в склад.');
+      s.op='buy'; s.data={kind:'purchase',name:a.title,cost:0,acquired:today(),avito_id:a.id,avito_url:a.url};
+      s.fields=[]; s.step=0; s.confirm=true; ledger.set('session',s);
+      return {text:`${a.title}\nЦена продажи на Avito: ${rub(Math.round(a.price*100))}\n${a.url}\n\nДобавить в склад с себестоимостью 0 ₽?`,keyboard:[['Подтвердить'],['Отмена']]};
+    }
     if(['cost','amount'].includes(field)) value=money(text);
     else if(['day','acquired'].includes(field)) value=date(text);
     else if(field==='item') {

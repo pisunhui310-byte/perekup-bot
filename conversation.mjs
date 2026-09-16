@@ -23,7 +23,7 @@ function stockButtons(ledger, action) {
   const rows=ledger.all().filter(r=>!r.parent&&!r.sold_on&&!r.dismantled).map(r=>[`${action} #${r.id} · ${r.name}`]);
   return rows.length ? [...rows,['Отмена']] : [['Отмена']];
 }
-function stockMenu(ledger) { return [['Добавить по ссылке Avito'],['Очистить склад'], ...ledger.stockItems().map(r=>[`Товар #${r.id} · ${r.name}`]), ['МЕНЮ']]; }
+function stockMenu(ledger) { return [['Добавить вручную'],['Добавить по ссылке Avito'],['Очистить склад'], ...ledger.stockItems().map(r=>[`Товар #${r.id} · ${r.name}`]), ['МЕНЮ']]; }
 function nextAvito(ledger) {
   const owner=ledger.get('owner');
   const row=ledger.db.prepare(`SELECT a.* FROM avito_items a
@@ -84,6 +84,10 @@ export function reply(ledger, text) {
     const ns={op:'link_buy',fields:[['url','Пришли полную ссылку на объявление Avito (https://www.avito.ru/...)']],step:0,data:{}};
     ledger.set('session',ns); return question(ns);
   }
+  if(text==='Добавить вручную') {
+    const ns={op:'manual_buy',fields:[['name','Название товара?'],['listing_price','За сколько выставляешь на продажу? Введи цену в рублях.']],step:0,data:{}};
+    ledger.set('session',ns); return question(ns);
+  }
   if(text==='Очистить склад') { const count=ledger.all().filter(r=>!r.parent&&!r.sold_on&&!r.dismantled).length; assert(count>0,'Склад уже пуст.'); const ns={op:'clear_stock',confirm:true,fields:[],step:0,data:{count}}; ledger.set('session',ns); return {text:`Удалить весь текущий склад? Позиций: ${count}.\nПроданные сделки и отчёты останутся.`,keyboard:[['Подтвердить'],['Отмена']]}; }
   let delivery=text.match(/^(Продан без доставки|В доставке|Снял без продажи) #([1-9]\d*)$/);
   if(!s && delivery) {
@@ -134,7 +138,7 @@ export function reply(ledger, text) {
     if(s.confirm) {
       if(text==='Назад') { s.confirm=false; const [field]=s.fields[--s.step]; delete s.data[field]; if(field==='part_price'&&s.data.parts?.length) s.data.parts.pop(); ledger.set('session',s); return question(s); }
       if(text!=='Подтвердить') return {text:'Нажми «Подтвердить» или «Отмена».',keyboard:[['Подтвердить','Отмена']]};
-      const result=s.op==='undo' ? ledger.undo() : s.op==='quick_expense' ? ledger.expense({item:0,amount:s.data.amount,note:'Быстрый расход',day:s.data.day}) : s.op==='remove' ? ledger.removeItem(s.data.item) : s.op==='rename' ? ledger.renameItem(s.data.item,s.data.name) : s.op==='clear_stock' ? ledger.clearStock() : ledger[s.op](s.data);
+      const result=s.op==='undo' ? ledger.undo() : s.op==='quick_expense' ? ledger.expense({item:0,amount:s.data.amount,note:'Быстрый расход',day:s.data.day}) : s.op==='remove' ? ledger.removeItem(s.data.item) : s.op==='rename' ? ledger.renameItem(s.data.item,s.data.name) : s.op==='clear_stock' ? ledger.clearStock() : s.op==='manual_buy' ? ledger.buy({...s.data,kind:'opening',cost:0,acquired:today()}) : ledger[s.op](s.data);
       ledger.set('session',null);
       if(s.op==='buy' && s.data.avito_id) {
         const q=ledger.get('avito_queue',[]); const next=q.shift(); ledger.set('avito_queue',q);
@@ -159,7 +163,7 @@ export function reply(ledger, text) {
       s.fields=[]; s.step=0; s.confirm=true; ledger.set('session',s);
       return {text:`${a.title}\nЦена продажи на Avito: ${rub(Math.round(a.price*100))}\n${a.url}\n\nДобавить в склад с себестоимостью 0 ₽?`,keyboard:[['Подтвердить'],['Отмена']]};
     }
-    if(['cost','amount'].includes(field)) value=money(text);
+    if(['cost','amount','listing_price'].includes(field)) value=money(text);
     else if(['day','acquired'].includes(field)) value=date(text);
     else if(field==='item') {
       value=s.op==='expense' && text==='0' ? 0 : id(text);
@@ -183,6 +187,9 @@ export function reply(ledger, text) {
     if(field==='day' && s.op==='build') assert(s.data.ids.every(n=>ledger.item(n).acquired<=value),'Сборка не может быть раньше покупки деталей.');
     if(field==='day' && s.op==='dismantle') assert(value>=ledger.item(s.data.item).acquired,'Разбор не может быть раньше покупки/сборки.');
     s.data[field]=value;
+    if(s.op==='manual_buy' && field==='listing_price') {
+      s.confirm=true; ledger.set('session',s); return {text:`Добавить на склад:\n${s.data.name}\nЦена продажи: ${rub(s.data.listing_price)}\nСебестоимость: 0 ₽\n\nЗаписать?`,keyboard:[['Подтвердить'],['Отмена']]};
+    }
     s.step++;
     if(s.step===s.fields.length) { s.confirm=true; ledger.set('session',s); return {text:summary(ledger,s)+'\n\nЗаписать?',keyboard:[['Подтвердить','Отмена']]}; }
     ledger.set('session',s);

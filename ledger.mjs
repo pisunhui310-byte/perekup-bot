@@ -125,7 +125,7 @@ export class Ledger {
       if(d.avito_id) {
         const a=this.avito(d.avito_id);
         if(a) this.db.prepare('UPDATE items SET listing_price=? WHERE id=?').run(Math.round(a.price*100),r.lastInsertRowid);
-      }
+      } else if (d.listing_price !== undefined) this.db.prepare('UPDATE items SET listing_price=? WHERE id=?').run(d.listing_price,r.lastInsertRowid);
       return `Добавлен #${r.lastInsertRowid}: ${d.name}.`;
     });
   }
